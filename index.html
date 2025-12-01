@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Enhanced Save File Tool — Tight PDF Spacing</title>
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+
+<style>
+  :root{
+    --card-radius: .75rem;
+    --accent: #6f42c1;
+  }
+  body {
+    background: linear-gradient(180deg,#f5f7fa 0%, #eef2f8 100%);
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    padding: 28px;
+  }
+  .card {
+    border-radius: var(--card-radius);
+  }
+  #editor {
+    min-height: 180px;
+    border: 1px solid rgba(16,24,40,.06);
+    border-radius: .5rem;
+    padding: 12px;
+    white-space: pre-wrap;
+    outline: none;
+    background: #fff;
+    box-shadow: 0 6px 18px rgba(16,24,40,.04);
+  }
+  .format-btn{ min-width: 110px; }
+  .small-muted { font-size: .85rem; color: #6b7280; }
+  .bi { vertical-align: -.125em; }
+  @media (max-width:600px){
+    body{ padding: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="d-flex flex-column align-items-center mb-3">
+
+    <h3 class="mb-2">
+        <i class="bi bi-file-earmark-text-fill" style="color:var(--accent);"></i>
+    </h3>
+
+    <h4 class="mb-0">Save File Tool</h4>
+    <div class="text-muted small">
+        Create TXT / HTML / DOC / PDF files with proper spacing
+    </div>
+
+</div>
+
+
+    <div id="editor" contenteditable="true" placeholder="Type your content here..."></div>
+
+    <div class="row g-2 mb-3 mt-3">
+      <div class="col-md-3">
+        <label class="form-label">Margins (px)</label>
+        <input id="marginInput" type="number" value="20" class="form-control">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Text Color</label>
+        <input id="textColor" type="color" value="#000000" class="form-control form-control-color">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Font Size (px)</label>
+        <input id="fontSize" type="number" value="16" class="form-control">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Filename</label>
+        <input id="filename" type="text" value="myfile" class="form-control">
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mb-3">
+      <button class="btn btn-outline-secondary btn-sm" onclick="undoText()"><i class="bi bi-arrow-counterclockwise"></i> Undo</button>
+      <button class="btn btn-outline-secondary btn-sm" onclick="redoText()"><i class="bi bi-arrow-clockwise"></i> Redo</button>
+      <div class="ms-auto text-end">
+        <div id="countDisplay" class="fw-semibold">Words: 0 | Chars: 0</div>
+        <div class="small-muted">Tip: Use the Preview to check PDF output before saving.</div>
+      </div>
+    </div>
+
+    <h6 class="fw-bold mt-3">Choose File Format</h6>
+    <div class="d-flex flex-wrap gap-2 mt-2 mb-3">
+      <button class="btn btn-primary format-btn" onclick="saveFile('txt')"><i class="bi bi-filetype-txt"></i> TXT</button>
+      <button class="btn btn-secondary format-btn" onclick="saveFile('html')"><i class="bi bi-filetype-html"></i> HTML</button>
+      <button class="btn btn-info format-btn" onclick="saveFile('doc')"><i class="bi bi-filetype-doc"></i> DOC</button>
+      <button class="btn btn-danger format-btn" onclick="saveFile('pdf')"><i class="bi bi-filetype-pdf"></i> PDF</button>
+    </div>
+
+    <div class="mt-2 d-flex gap-2">
+      <button class="btn btn-outline-primary" onclick="openPreview()"><i class="bi bi-eye"></i> Preview</button>
+      <button class="btn btn-outline-success" onclick="printContent()"><i class="bi bi-printer"></i> Print</button>
+      <button class="btn btn-outline-secondary" onclick="clearEditor()"><i class="bi bi-trash"></i> Clear</button>
+    </div>
+  </div>
+</div>
+
+<!-- Preview Modal -->
+<div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Preview</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="previewArea" class="border p-4 rounded" style="min-height:300px;background:#fff"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- libs -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+/* Elements */
+const editor = document.getElementById('editor');
+const marginInput = document.getElementById('marginInput');
+const textColor = document.getElementById('textColor');
+const fontSize = document.getElementById('fontSize');
+const filenameInput = document.getElementById('filename');
+const countDisplay = document.getElementById('countDisplay');
+
+let undoStack = [];
+let redoStack = [];
+
+/* Helpers */
+function hexToRgb(hex){
+  hex = (hex || '#000000').replace('#','');
+  return {
+    r: parseInt(hex.substring(0,2),16),
+    g: parseInt(hex.substring(2,4),16),
+    b: parseInt(hex.substring(4,6),16)
+  };
+}
+
+function downloadBlob(blob, name){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/* Count (words / chars) */
+function updateCount(){
+  const text = editor.innerText.replace(/\n/g,' ');
+  const words = text.trim()? text.trim().split(/\s+/).length : 0;
+  const chars = text.length;
+  countDisplay.textContent = `Words: ${words} | Chars: ${chars}`;
+}
+
+/* Init undo stack with initial content */
+function pushUndoState(){
+  undoStack.push(editor.innerHTML);
+  // keep stack moderate
+  if(undoStack.length > 200) undoStack.shift();
+}
+
+/* Event listeners */
+editor.addEventListener('input', ()=>{
+  pushUndoState();
+  redoStack = [];
+  updateCount();
+});
+
+/* Undo / Redo */
+function undoText(){
+  if(undoStack.length > 1){
+    redoStack.push(undoStack.pop());
+    editor.innerHTML = undoStack[undoStack.length - 1] || '';
+    updateCount();
+  }
+}
+function redoText(){
+  if(redoStack.length > 0){
+    const val = redoStack.pop();
+    editor.innerHTML = val;
+    undoStack.push(val);
+    updateCount();
+  }
+}
+
+/* Clear */
+function clearEditor(){
+  editor.innerHTML = '';
+  undoStack = [];
+  redoStack = [];
+  pushUndoState();
+  updateCount();
+}
+
+/* Preview (modal) */
+function openPreview(){
+  const preview = document.getElementById('previewArea');
+  const margin = parseInt(marginInput.value) || 20;
+  const fz = parseInt(fontSize.value) || 16;
+  const color = textColor.value || '#000000';
+
+  preview.innerHTML = editor.innerHTML;
+  preview.style.margin = margin + 'px';
+  preview.style.fontSize = fz + 'px';
+  preview.style.color = color;
+
+  const modal = new bootstrap.Modal(document.getElementById('previewModal'));
+  modal.show();
+}
+
+/* Print */
+function printContent(){
+  const margin = parseInt(marginInput.value) || 20;
+  const fz = parseInt(fontSize.value) || 16;
+  const color = textColor.value || '#000000';
+  const w = window.open('', '', 'width=900,height=700');
+  w.document.write(`
+    <html><head><title>Print</title></head>
+    <body style="margin:${margin}px; font-size:${fz}px; color:${color}; font-family: sans-serif;">
+      ${editor.innerHTML}
+    </body></html>`);
+  w.document.close();
+  w.focus();
+  w.print();
+  w.close();
+}
+
+/* Save - with tight PDF spacing */
+async function saveFile(type){
+  const filename = (filenameInput.value || 'file').trim();
+  const margin = Math.max(8, parseInt(marginInput.value) || 20); // px
+  const fontPx = Math.max(10, parseInt(fontSize.value) || 16); // px
+  const color = textColor.value || '#000000';
+
+ if (type === 'pdf') {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  const margin = Math.max(8, parseInt(marginInput.value) || 20);
+  const fontPx = Math.max(10, parseInt(fontSize.value) || 16);
+  const fontPt = Math.round(fontPx * 0.75);
+  const rgb = hexToRgb(textColor.value || '#000000');
+
+  doc.setFont('Helvetica', 'normal');
+  doc.setFontSize(fontPt);
+  doc.setTextColor(rgb.r, rgb.g, rgb.b);
+
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const usableW = pageW - margin * 2;
+
+  // TIGHT LINE SPACING → EXACT control
+  const lineHeightFactor = 1.05;
+
+  const text = editor.innerText;
+  const lines = doc.splitTextToSize(text, usableW);
+
+  let y = margin;
+
+  lines.forEach((line, i) => {
+    // page break
+    if (y + fontPt * lineHeightFactor > pageH - margin) {
+      doc.addPage();
+      y = margin;
+    }
+
+    // render line respecting lineHeightFactor
+    doc.text(line, margin, y, {
+      lineHeightFactor: lineHeightFactor
+    });
+
+    // move y manually
+    y += fontPt * lineHeightFactor;
+  });
+
+  doc.save(filename + '.pdf');
+  return;
+}
+
+
+  // DOC & HTML
+  if(type === 'doc' || type === 'html'){
+    const htmlContent = `<html><body style="margin:${margin}px; font-size:${fontPx}px; color:${color}; font-family: sans-serif;">${editor.innerHTML}</body></html>`;
+    const blobType = type === 'doc' ? 'application/msword' : 'text/html';
+    downloadBlob(new Blob([htmlContent], { type: blobType }), `${filename}.${type}`);
+    return;
+  }
+
+  // TXT
+  if(type === 'txt'){
+    downloadBlob(new Blob([editor.innerText], { type: 'text/plain' }), `${filename}.txt`);
+    return;
+  }
+
+  // fallback: save plain text
+  downloadBlob(new Blob([editor.innerText], { type: 'text/plain' }), `${filename}.txt`);
+}
+
+/* Initialize */
+(function init(){
+  // seed undoStack with initial content
+  pushUndoState();
+  updateCount();
+
+  // small UX: focus editor on load
+  setTimeout(()=> editor.focus(), 250);
+})();
+</script>
+
+</body>
+</html>
